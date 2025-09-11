@@ -1,6 +1,6 @@
 import logging
 
-def setup_logging(log_file='psychoacoustic_metrics.log', level=logging.DEBUG):
+def setup_logging(log_file='psychoacoustic_metrics.log', level=logging.INFO):
     logger = logging.getLogger(__name__)
     logger.setLevel(level)
 

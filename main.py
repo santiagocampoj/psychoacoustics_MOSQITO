@@ -39,19 +39,13 @@ from mosqito import COLORS
 
 
 import argparse
+from tqdm import tqdm
 import json
 from logging_config import setup_logging
 from config import *
 from utils import *
 
 
-
-
-def arg_parser():
-    parser = argparse.ArgumentParser(description='Psychoacoustic Metrics Computation')
-    parser.add_argument('-f', '--path_general', type=str, required=True, 
-                        help='Path to Psychoacoustic wav folder')
-    return parser.parse_args()
 
 
 
@@ -89,6 +83,10 @@ def main():
                     logger.info(f"The output folder already exists: {output_path}")
                 logger.info("")
 
+                #json output path
+                json_output_path = os.path.join(output_path, f"{folder}_{general_folder}_metrics.json")
+                logger.info(f"The JSON output path is: {json_output_path}")
+
 
                 # GENERAL FOLDER (LOUDNESS_ZWST, ROUGHNESS_DW, SHARPNESS_DIN)
                 general_analysis_folder = os.path.join(output_path, f'{general_folder}')
@@ -104,6 +102,18 @@ def main():
 
                 wav_files = [f for f in os.listdir(mission_path) if f.endswith('.wav')]
                 for wav_file in wav_files:
+                    logger.info("")
+                    logger.info(f"Processing file: {wav_file}")
+
+
+                    #initializin the results dictionary
+                    results = {
+                        "file": wav_file,
+                        "metrics": {}
+                    }
+
+
+
                     file_path = os.path.join(mission_path, wav_file)
                     wav_name = os.path.splitext(wav_file)[0]
 
@@ -111,6 +121,7 @@ def main():
                     sig, fs = load(file_path, wav_calib=2 * 2 **0.5)
                     # plot signal
                     t = np.linspace(0, (len(sig) - 1) / fs, len(sig))
+                    # exit()
 
 
 
@@ -160,8 +171,12 @@ def main():
                         logger.info("")
                         logger.info("Computing Loudness Zwicker")
                         N, N_specific, bark_axis = loudness_zwst(sig, fs, field_type="free")
+                        results["metrics"]["loudness_zwst"] = {"global_loudness_sone": N,
+                                                            # "specific_loudness_sone_per_bark": N_specific.tolist(),
+                                                            # "bark_axis": bark_axis.tolist()
+                                                            }
                         logger.info("N_zwst = {:.1f} sone".format(N))
-                        logger.info(f"N_zwst = {N:.1f} sone")
+                        # logger.info(f"N_zwst = {N:.1f} sone")
 
                         plt.figure(2)
                         plt.plot(bark_axis, N_specific, color=COLORS[0])
@@ -173,7 +188,7 @@ def main():
                         # #SAVE
                         plt.savefig(loudness_zwst_wav_name, dpi=300)
                         logger.info(f"Loudness Zwicker plot saved: {loudness_zwst_wav_name}")
-                        logger.info()
+                        logger.info("")
                         plt.close()
                         
 
@@ -215,6 +230,14 @@ def main():
                         N, N_specific, bark_axis, time_axis = loudness_zwst_perseg(
                             sig, fs, nperseg=8192 * 2, noverlap=4096
                         )
+                        results["metrics"]["loudness_zwst_per_segment"] = {
+                            "global_loudness_sone_per_segment": N.tolist(),
+                            # "specific_loudness_sone_per_bark_per_segment": N_specific.tolist(),
+                            # "bark_axis": bark_axis.tolist(),
+                            # "time_axis": time_axis.tolist()
+                        }
+
+                        #plotting
                         plt.figure(3)
                         plt.plot(time_axis, N, color=COLORS[0])
                         plt.xlabel("Time [s]")
@@ -230,13 +253,12 @@ def main():
                         plt.close()
 
 
+
                         # ###################################
                         # ###################################
                         # ###################################
                         # # # FROM SPECTRUM
                         # ###################################
-                        # ###################################
-                        # ######################################################################
                         # ###################################
                         # ###################################
                         # # # Compute spectrum
@@ -247,8 +269,15 @@ def main():
                         freqs = fftfreq(n, 1/fs)[0:n//2]
                         # Compute Loudness
                         N, N_specific, bark_axis = loudness_zwst_freq(spec, freqs)
+                        results["metrics"]["loudness_zwst_from_spectrum"] = {
+                            "global_loudness_sone": N,
+                            # "specific_loudness_sone_per_bark": N_specific.tolist(),
+                            # "bark_axis": bark_axis.tolist()
+                        }
 
                         logger.info("N_zwst = {:.1f} sone".format(N) )
+
+
 
                         # plot
                         plt.figure(6)
@@ -269,7 +298,7 @@ def main():
                         logger.info("")
                         logger.info("ENTERING THE LOUDNESS_ZWST BLOCK")
                         _, roughness_dw_wav_name = mkdir_folder_wav_name(general_analysis_folder, wav_name, '_roughness_dw.png', 'Roughness')
-                        _, roughness_dw_spectrum_wav_name = mkdir_folder_wav_name(general_analysis_folder, wav_name, '_roughness_dw_spectrum.png', 'Roughness_Spectrum')
+                        # _, roughness_dw_spectrum_wav_name = mkdir_folder_wav_name(general_analysis_folder, wav_name, '_roughness_dw_spectrum.png', 'Roughness_Spectrum')
 
 
 
@@ -283,6 +312,12 @@ def main():
                         logger.info("")
                         logger.info("Computing Roughness DW")
                         r, r_spec, bark, time = roughness_dw(sig, fs, overlap=0)
+                        results["metrics"]["roughness_dw"] = {
+                            "instantaneous_roughness_asper": r.tolist(),
+                            # "specific_roughness_asper_per_bark": r_spec.tolist(),
+                            # "bark_axis": bark.tolist(),
+                            # "time_axis": time.tolist()
+                        }
 
                         plt.figure(2)
                         plt.plot(time, r, color=COLORS[0])
@@ -315,23 +350,15 @@ def main():
 
                         # Compute roughness
                         R, R_spec, bark = roughness_dw_freq(spectrum,freqs)
-                        logger.info("Roughness_dw = {:.1f} asper".format(R) )
+                        results["metrics"]["roughness_dw_from_spectrum"] = {
+                            "global_roughness_asper": R,
+                            # "specific_roughness_asper_per_bark": R_spec.tolist(),
+                            # "bark_axis": bark.tolist()
+                        }
+                        # logger.info("Roughness_dw = {:.1f} asper".format(R) )
                         # logger.info(f"Roughness_dw spectrum = {R:.1f} asper")
-
-                        # plot
-                        # plt.figure(6)
-                        # plt.plot(time, R, color=COLORS[0])
-                        # # plt.ylim(0,1)
-                        # plt.xlabel("Time [s]")
-                        # plt.ylabel("Roughness [Asper]")
-                        # plt.title(f'Roughness from spectrum - {wav_name}')
-                        # plt.grid()
-
-                        # #save
-                        # plt.savefig(roughness_dw_spectrum_wav_name, dpi=300)
-                        # logger.info(f"Roughness Spectrum plot saved: {roughness_dw_spectrum_wav_name}")
-                        # logger.info("")
-                        # plt.close()
+                        # logger.info("Roughness_dw spectrum = {:.1f} asper".format(R) )
+                        logger.info(f"Roughness_dw = {R} asper")
 
 
 
@@ -355,22 +382,20 @@ def main():
                         logger.info("Computing Sharpness DIN")
 
 
+
                         for weighting_type in SHARPNESS_DIN_WEITHING:
-
-
                             sharpness = sharpness_din_st(sig, fs, weighting=weighting_type)
-                            # sharpness = sharpness_din_st(sig, fs, weighting="din")
-                            # sharpness = sharpness_din_st(sig, fs, weighting="aures")
-                            # sharpness = sharpness_din_st(sig, fs, weighting="fastl")
 
                             logger.info("Sharpness = {:.1f} acum".format(sharpness) )
                             sharpness_n = "Sharpness = {:.1f} acum".format(sharpness)
-                            # logger.info(sharpness_n)
-
                             sharpness, time_axis = sharpness_din_perseg(sig, fs, nperseg=8192 * 2, noverlap=4096, weighting=weighting_type)
-                            # sharpness, time_axis = sharpness_din_perseg(sig, fs, nperseg=8192 * 2, noverlap=4096, weighting="din")
-                            # sharpness, time_axis = sharpness_din_perseg(sig, fs, nperseg=8192 * 2, noverlap=4096, weighting="aures")
-                            # sharpness, time_axis = sharpness_din_perseg(sig, fs, nperseg=8192 * 2, noverlap=4096, weighting="fastl")
+
+                            results["metrics"][f"sharpness_din_{weighting_type}"] = {
+                                "global_sharpness_acum": sharpness,
+                                # "instantaneous_sharpness_acum": sharpness.tolist(),
+                                # "time_axis": time_axis.tolist()
+                            }
+
                             plt.figure(2)
                             plt.plot(time_axis, sharpness, color=COLORS[0])
                             plt.xlabel("Time [s]")
@@ -404,21 +429,28 @@ def main():
                         freqs = fftfreq(n, 1/fs)[0:n//2]
                         # Compute sharpness
                         S = sharpness_din_freq(spec, freqs)
+                        results["metrics"]["sharpness_din_from_spectrum"] = {
+                            "global_sharpness_acum": S
+                        }
                         logger.info("Sharpness_din = {:.1f} sone".format(S) )
 
-                        # Plot the results
-                        # plt.figure(6)
-                        # plt.bar(1, S, color=COLORS[0])
-                        # # plt.xlim(0,2)
-                        # # plt.ylim(0,3)
-                        # plt.xlabel("Sharpness [acum]")
-                        # plt.title(f'Sharpness from spectrum - {wav_name}')
-                        # plt.grid()
+                    
 
-                        # #save
-                        # plt.savefig(sharpness_din_spectrum_wav_name, dpi=300)
-                        # logger.info(f"Sharpness Spectrum plot saved: {sharpness_din_spectrum_wav_name}")
-                        # plt.close()
+
+                    ########################################
+                    ###################################
+                    ###################################
+                    #save the json file
+                    # with open(json_output_path, 'w') as json_file:
+                    #     json.dump(results, json_file, indent=4)
+
+                    # logger.info(f"Metrics saved to JSON: {json_output_path}")
+
+                    with open(json_output_path, 'w', encoding='utf-8') as json_file:
+                        json.dump(to_jsonable(results), json_file, indent=4, ensure_ascii=False)
+
+                    logger.info(f"Metrics saved to JSON: {json_output_path}")
+
 
 
 
